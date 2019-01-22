@@ -41,7 +41,10 @@ Then feed the .ll file to the executables as an argument such as:
 
 **List of Test Cases (ex1-test.c)**
 
+![](img\testcase-1.PNG)
 
+**Test Results**
+![](img\result-1.PNG)
 
 #### 3.2 Task 2: Detect Unsafe VLAs in the Same Basic Block
 
@@ -57,6 +60,10 @@ As we iterate through instructions in a function, pointers to these instructions
 
 
 **List of Test Cases (ex2-test.c)**
+![](img\testcase-2.PNG)
+
+**Test Results**
+![](img\result-2.PNG)
 
 #### 3.3 Task 3: Detect Unsafe VLAs using Program Analysis
 
@@ -69,7 +76,7 @@ As we iterate through instructions in a function, pointers to these instructions
 - Various types of VLA length, including `size_t`, `uint32_t`, `uint64_t`, `int32_t`, `int64_t`
 
 > For a complete list of icmp condition codes, see https://llvm.org/docs/LangRef.html#icmp-instruction
- 
+
 To evaluate constraints on the length,  the program first identify all VLAs using the method from task 1. For each `alloca` instruction, we iterate through the def-use chain of the operands to find if any of the users is `IcmpInst` (i.e. icmp instruction), which represents the if-conditionals that involves the VLA's length. For each of the `IcmpInst`, we compare the conditional with the existing length constraints `len_max` and update it when necessary.
 
 A VLA is considered unsafe if its `len_max` falls under any of the following categories:
@@ -85,15 +92,27 @@ LLVM compiler may discard unnecessary portions of code based on the optimization
 
 1. LLVM replaces predicates for some icmp instructions. More specifically, `ule` is changed to `ult` and `sle` is changed to `slt` while the operand is increased by 1. For example, as shown in the screenshot below, the original condition `len<=1000` is replaced by `len < 1001` during compilation.
 
+![](img\screenshot-1.PNG)
+
 Given such optimisation convention, we actually have less icmp predicates to worry about. In line 75-76 of `ex3.cp`, although the switch case only contains `CmpInst::ICMP_ULT` and `CmpInst::ICMP_SLT`, the program can correctly handle `ule` and `sle` as well.
 
 2. LLVM zero-extends variables from `i32` to `i64` before it is used by the alloca instruction. Although this enhances the overall security by eliminating potential sign extension issues, it adds difficulties to program analysis since we will loss track of the def-use chain of the length variable. For instance, in the code below, `alloca` uses `%4` as an operand. However, `%4` is actually converted from `%0` in the previous line. If we trace the def-use chain of `%4`, we are unable to obtain constraints that have been applied to `%0`.
+![](img\screenshot-2.PNG)
 
- 
-**Design of Test Cases**
+Our solution to this issue is to save all `ZextInst`of the current function in a vector named `zextVector`. Every time before we analyse the operand of an `alloca` instruction, the operand is compared with all instructions in `zextVector` to see if it originates from a `zext` conversion. If such conversion exists, we will iterator through the def-use chain of the original type instead.
 
+
+### Limitations
+The program relies on the def-use chain to trace constraints on the VLA’s length variable. Hence, if the SSA representation of the length variable have been transformed before `alloca`(other than `zext`), the program will not be able to trace the corresponding constraints.
+
+The code snippet below demonstrates a failed test case. It shows that although `new_var` is always smaller than 1000, the program cannot find any `icmp` instructions on `new_var`’s def-use chain. Therefore, the VLA will be reported wrongly as “unsafe”.
+![](img\screenshot-3.PNG)
+
+### Design of Test Cases
 The design of test cases are based on branch condition testing, unsigned/signed integers, same/different basic blocks, boundary testing and fixed/variable length array. Some complicated test scenarios such as nested constraints and detecting multiple unsafe alloca Instructions.
 
 **List of Test Cases (ex3-test.c)**
+![](img\testcase-3.PNG)
 
-
+**Test Results**
+![](img\result-3.PNG)
